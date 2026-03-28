@@ -31,11 +31,16 @@ dependencies:
   flutter:
     sdk: flutter
   firebase_core: 
-  firebase_auth: 
+  firebase_auth: ^6.3.0
   cloud_firestore: 
   provider:        # For state management
   intl:           # For formatting timestamps (10:30 AM)
-
+  cloudinary_flutter: ^1.0.0
+  cloudinary_api: ^1.1.1
+  cloudinary_url_gen: ^1.0.0  # Or the latest version
+  image_picker: ^1.0.7
+  uuid: ^4.3.3               # Helps generate unique file names so images don't overwrite each other
+  http: ^1.6.0
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
