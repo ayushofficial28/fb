@@ -1,9 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloudinary_api/src/request/model/uploader_params.dart';
-import 'package:cloudinary_api/uploader/cloudinary_uploader.dart';
-import 'package:cloudinary_url_gen/cloudinary.dart';
 import 'package:fb/screens/fullScreenImage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -31,6 +29,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final String currentUserId = FirebaseAuth.instance.currentUser!.uid;
   bool _isUploading = false;
   late Stream<QuerySnapshot> _stream;
+  final ImagePicker _picker = ImagePicker();
   void initState() {
     super.initState();
     _stream = FirebaseFirestore.instance
@@ -67,120 +66,114 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> sendImage() async {
-    final ImagePicker picker = ImagePicker();
-
-    final XFile? image = await picker.pickImage(
+    final XFile? image = await _picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 70,
     );
     if (image == null) return;
-    setState(() {
-      _isUploading = true;
-    });
 
-    try {
-  // 1. Set up the raw API endpoint
-  String cloudName = 'dpalozx6i'; 
-  Uri uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
-
-  // 2. Create a "Multipart" request (the standard way to send files over the web)
-  var request = http.MultipartRequest('POST', uri);
-
-  // 3. Add your unsigned preset
-  request.fields['upload_preset'] = 'alter_chats';
-
-  // 4. Add the file directly using the file path! 
-  request.files.add(await http.MultipartFile.fromPath('file', image.path));
-
-  // 5. Send it to Cloudinary
-  var response = await request.send();
-
-  // 6. Read the response
-  if (response.statusCode == 200) {
-    // Success! Decode the JSON response
-    var responseData = await response.stream.toBytes();
-    var result = String.fromCharCodes(responseData);
-    var jsonMap = jsonDecode(result);
-    
-    String imageUrl = jsonMap['secure_url'];
-    print("SUCCESS: Native HTTP upload to $imageUrl");
-
-    // Save URL to Firestore
-    await FirebaseFirestore.instance
+    // 1. INSTANT PLACEHOLDER: Create the document reference first
+    DocumentReference docRef = await FirebaseFirestore.instance
         .collection('chats')
         .doc(widget.chatId)
         .collection('messages')
         .add({
-      'senderId': currentUserId,
-      'text': '', 
-      'imageUrl': imageUrl,
-      'type': 'image', 
-      'timestamp': FieldValue.serverTimestamp(),
-    });
+          'senderId': currentUserId,
+          'text': '',
+          'imageUrl': '', // Empty for now
+          'localPath': image.path, // Save the physical phone path
+          'type': 'image',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isUploading': true, // <-- NEW: UI knows to show a spinner
+          'hasError': false, // <-- NEW: UI knows it hasn't failed yet
+        });
+        await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).set(
+      {
+        'participants': [currentUserId, widget.friendId],
+        'lastMessage': '📷 Photo',
+        'lastTimestamp': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    // 2. BACKGROUND UPLOAD: Now we talk to Cloudinary
+    try {
+      String cloudName = 'dpalozx6i';
+      Uri uri = Uri.parse(
+        'https://api.cloudinary.com/v1_1/$cloudName/image/upload',
+      );
 
-    // Update the recent message preview
-    await FirebaseFirestore.instance
-        .collection('chats')
-        .doc(widget.chatId)
-        .update({
-      'lastMessage': '📷 Photo',
-      'lastTimestamp': FieldValue.serverTimestamp(),
-    });
+      var request = http.MultipartRequest('POST', uri);
+      request.fields['upload_preset'] = 'alter_chats';
+      request.files.add(await http.MultipartFile.fromPath('file', image.path));
 
-  } else {
-    // If it fails, print the exact server response
-    var responseData = await response.stream.toBytes();
-    var errorResult = String.fromCharCodes(responseData);
-    print('--- HTTP UPLOAD FAILED ---');
-    print('Status Code: ${response.statusCode}');
-    print('Server Error: $errorResult');
+      var response = await request.send();
+
+      if (response.statusCode == 200) {
+        // SUCCESS!
+        var responseData = await response.stream.toBytes();
+        var jsonMap = jsonDecode(String.fromCharCodes(responseData));
+        String imageUrl = jsonMap['secure_url'];
+
+        // 3. SILENT SWAP: Update the exact same document
+        await docRef.update({
+          'imageUrl': imageUrl,
+          'isUploading': false, // Turn off the spinner
+          // We can leave localPath there, it won't hurt anything
+        });
+
+        // Update the recent message preview for the chat list
+        
+      } else {
+        // HTTP FAILED (Bad status code)
+        print('--- HTTP UPLOAD FAILED ---');
+        await docRef.update({
+          'isUploading': false, // Stop spinner
+          'hasError': true, // Trigger the red retry icon
+        });
+      }
+    } catch (e) {
+      // APP CRASHED OR NO INTERNET
+      print("--- NETWORK ERROR DURING UPLOAD ---");
+      await docRef.update({'isUploading': false, 'hasError': true});
+    }
   }
 
-} catch (e) {
-  print("--- APP CRASHED DURING HTTP UPLOAD ---");
-  print(e.toString());
-}
-    // } catch (e) {
-    //   if (mounted) {
-    //     showDialog(
-    //       context: context,
-    //       builder: (BuildContext context) {
-    //         return AlertDialog(
-    //           shape: RoundedRectangleBorder(
-    //             borderRadius: BorderRadius.circular(
-    //               15,
-    //             ), // Matches your chat bubble style
-    //           ),
-    //           title: const Row(
-    //             children: [
-    //               Icon(Icons.error_outline, color: Colors.red),
-    //               SizedBox(width: 8),
-    //               Text("Upload Failed"),
-    //             ],
-    //           ),
-    //           content: const Text(
-    //             "There was an issue sending your image. Please check your connection and try again.",
-    //           ),
-    //           actions: [
-    //             TextButton(
-    //               onPressed: () {
-    //                 Navigator.of(context).pop(); // This line closes the popup
-    //               },
-    //               child: const Text(
-    //                 "OK",
-    //                 style: TextStyle(color: Color(0xff2196f3), fontSize: 16),
-    //               ),
-    //             ),
-    //           ],
-    //         );
-    //       },
-    //     );
-    //   }
-    // } 
-    finally {
-      setState(() {
-        _isUploading = false;
-      });
+  Future<void> retryImageUpload(String messageId, String localPath) async {
+    DocumentReference docRef = FirebaseFirestore.instance
+        .collection('chats')
+        .doc(widget.chatId)
+        .collection('messages')
+        .doc(messageId);
+
+    // Reset the UI back to loading state instantly
+    await docRef.update({'isUploading': true, 'hasError': false});
+
+    // Run the exact same HTTP upload logic as above...
+    try {
+      String cloudName = 'dpalozx6i';
+      Uri uri = Uri.parse(
+        'https://api.cloudinary.com/v1_1/$cloudName/image/upload',
+      );
+
+      var request = http.MultipartRequest('POST', uri);
+      request.fields['upload_preset'] = 'alter_chats';
+      request.files.add(await http.MultipartFile.fromPath('file', localPath));
+
+      var response = await request.send();
+
+      if (response.statusCode == 200) {
+        var responseData = await response.stream.toBytes();
+        var jsonMap = jsonDecode(String.fromCharCodes(responseData));
+
+        await docRef.update({
+          'imageUrl': jsonMap['secure_url'],
+          'isUploading': false,
+        });
+      } else {
+        await docRef.update({'isUploading': false, 'hasError': true});
+      }
+    } catch (e) {
+      await docRef.update({'isUploading': false, 'hasError': true});
     }
   }
 
@@ -228,12 +221,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       var msgData =
                           snapshot.data!.docs[index].data()
                               as Map<String, dynamic>;
+                      bool isUploading = msgData['isUploading'] ?? false;
+                      bool hasError = msgData['hasError'] ?? false;
+                      String localPath = msgData['localPath'] ?? '';
+                      String imageUrl = msgData['imageUrl'] ?? '';
                       bool isMe = msgData['senderId'] == currentUserId;
                       String messageType = msgData['type'] ?? 'text';
                       String timeString = "";
                       if (msgData['timestamp'] != null) {
                         Timestamp t = msgData['timestamp'] as Timestamp;
-                        timeString = DateFormat('h:mm a').format(t.toDate());
+                        timeString = DateFormat(
+                          'yyyy-MM-dd h:mm a',
+                        ).format(t.toDate());
                       }
                       return Align(
                         alignment: isMe
@@ -270,68 +269,110 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                 child: messageType == 'image'
                                     ? GestureDetector(
                                         onTap: () {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) =>
-                                                  FullScreenImage(
-                                                    imageUrl:
-                                                          msgData['imageUrl']
-                                                        ??
-                                                        '',
-                                                  ),
-                                            ),
-                                          );
+                                          if (imageUrl.isNotEmpty &&
+                                              !isUploading) {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    FullScreenImage(
+                                                      imageUrl:
+                                                          msgData['imageUrl'] ??
+                                                          '',
+                                                    ),
+                                              ),
+                                            );
+                                          }
                                         },
                                         child: ClipRRect(
                                           borderRadius: BorderRadius.circular(
                                             8,
                                           ), // Keeps the image inside your curved box
-                                          child: Image.network(
-                                            // Let's temporarily remove getThumbnailUrl to make sure that isn't breaking the link
-                                            msgData['imageUrl'] ??
-                                                'https://via.placeholder.com/150',
-                                            width: 220,
-                                            fit: BoxFit.cover,
-                                            // 1. THIS CATCHES BROKEN LINKS
-                                            errorBuilder:
-                                                (context, error, stackTrace) {
-                                                  print(
-                                                    "IMAGE ERROR: $error",
-                                                  ); // This will print the exact reason it failed
-                                                  return const SizedBox(
-                                                    width: 220,
-                                                    height: 220,
-                                                    child: Center(
-                                                      child: Icon(
-                                                        Icons.broken_image,
-                                                        color: Colors.white,
-                                                        size: 50,
-                                                      ),
-                                                    ),
-                                                  );
-                                                },
-                                            // 2. YOUR EXISTING LOADING SPINNER
-                                            loadingBuilder:
-                                                (
-                                                  context,
-                                                  child,
-                                                  loadingProgress,
-                                                ) {
-                                                  if (loadingProgress == null)
-                                                    return child;
-                                                  return const SizedBox(
-                                                    width: 220,
-                                                    height: 220,
-                                                    child: Center(
-                                                      child:
-                                                          CircularProgressIndicator(
-                                                            color: Colors.white,
+                                          child: isMe
+                                              // --- 1. SENDER VIEW ---
+                                              ? (isUploading || hasError)
+                                                    ? Stack(
+                                                        alignment:
+                                                            Alignment.center,
+                                                        children: [
+                                                          Image.file(
+                                                            File(localPath),
+                                                            width: 220,
+                                                            height: 220,
+                                                            fit: BoxFit.cover,
+                                                            color: hasError
+                                                                ? Colors.black
+                                                                      .withOpacity(
+                                                                        0.4,
+                                                                      )
+                                                                : null,
+                                                            colorBlendMode:
+                                                                hasError
+                                                                ? BlendMode
+                                                                      .darken
+                                                                : null,
                                                           ),
-                                                    ),
-                                                  );
-                                                },
-                                          ),
+                                                          if (isUploading)
+                                                            const CircularProgressIndicator(
+                                                              color:
+                                                                  Colors.white,
+                                                            ),
+                                                          if (hasError)
+                                                            IconButton(
+                                                              icon: const Icon(
+                                                                Icons.refresh,
+                                                                color:
+                                                                    Colors.red,
+                                                                size: 40,
+                                                              ),
+                                                              onPressed: () {
+                                                                // snapshot.data!.docs[index].id gives us the exact Firestore document ID
+                                                                retryImageUpload(
+                                                                  snapshot
+                                                                      .data!
+                                                                      .docs[index]
+                                                                      .id,
+                                                                  localPath,
+                                                                );
+                                                              },
+                                                            ),
+                                                        ],
+                                                      )
+                                                    : Image.network(
+                                                        imageUrl,
+                                                        width: 220,
+                                                        fit: BoxFit.cover,
+                                                      )
+                                              // --- 2. RECEIVER VIEW ---
+                                              : (imageUrl.isEmpty ||
+                                                    isUploading)
+                                              ? Container(
+                                                  width: 220,
+                                                  height: 220,
+                                                  color: Colors.grey[900],
+                                                  child: const Column(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      CircularProgressIndicator(
+                                                        color: Colors.white54,
+                                                      ),
+                                                      SizedBox(height: 12),
+                                                      Text(
+                                                        "Incoming photo...",
+                                                        style: TextStyle(
+                                                          color: Colors.white54,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                )
+                                              : Image.network(
+                                                  imageUrl,
+                                                  width: 220,
+                                                  fit: BoxFit.cover,
+                                                ),
                                         ),
                                       )
                                     : Text(
@@ -343,7 +384,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                         ),
                                       ),
                               ),
-
                               // --- THE TIMESTAMP ---
                               Padding(
                                 padding: const EdgeInsets.only(
