@@ -1,16 +1,11 @@
-//Extra file
-
-
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fb/screens/fullScreenImage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'chat_service.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final String chatId;
@@ -32,159 +27,50 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final String currentUserId = FirebaseAuth.instance.currentUser!.uid;
   bool _isUploading = false;
   late Stream<QuerySnapshot> _stream;
-  final ImagePicker _picker = ImagePicker();
+  late ChatService _chatService;
+
+  @override
   void initState() {
     super.initState();
-    _stream = FirebaseFirestore.instance
-        .collection('chats')
-        .doc(widget.chatId)
-        .collection('messages')
-        .orderBy('timestamp', descending: true) // Newest at bottom
-        .snapshots();
+    _chatService = ChatService(
+      chatId: widget.chatId,
+      friendId: widget.friendId,
+      currentUserId: currentUserId,
+    );
+    _stream = _chatService.getMessagesStream();
   }
 
-  void sendMessage() async {
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  void _sendMessage() async {
     String text = _messageController.text.trim();
     _messageController.clear();
     if (text.isEmpty) return;
 
-    await FirebaseFirestore.instance
-        .collection('chats')
-        .doc(widget.chatId)
-        .collection('messages')
-        .add({
-          'text': text,
-          'senderId': currentUserId,
-          'timestamp': FieldValue.serverTimestamp(),
-        });
-
-    await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).set(
-      {
-        'participants': [currentUserId, widget.friendId],
-        'lastMessage': text,
-        'lastTimestamp': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await _chatService.sendMessage(text);
   }
 
-  Future<void> sendImage() async {
-    final XFile? image = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 70,
-    );
+  void _sendImage() async {
+    final image = await _chatService.pickImage();
     if (image == null) return;
 
-    // 1. INSTANT PLACEHOLDER: Create the document reference first
-    DocumentReference docRef = await FirebaseFirestore.instance
-        .collection('chats')
-        .doc(widget.chatId)
-        .collection('messages')
-        .add({
-          'senderId': currentUserId,
-          'text': '',
-          'imageUrl': '', // Empty for now
-          'localPath': image.path, // Save the physical phone path
-          'type': 'image',
-          'timestamp': FieldValue.serverTimestamp(),
-          'isUploading': true, // <-- NEW: UI knows to show a spinner
-          'hasError': false, // <-- NEW: UI knows it hasn't failed yet
-        });
-        await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).set(
-      {
-        'participants': [currentUserId, widget.friendId],
-        'lastMessage': '📷 Photo',
-        'lastTimestamp': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-    // 2. BACKGROUND UPLOAD: Now we talk to Cloudinary
-    try {
-      String cloudName = 'dpalozx6i';
-      Uri uri = Uri.parse(
-        'https://api.cloudinary.com/v1_1/$cloudName/image/upload',
-      );
+    setState(() {
+      _isUploading = true;
+    });
 
-      var request = http.MultipartRequest('POST', uri);
-      request.fields['upload_preset'] = 'alter_chats';
-      request.files.add(await http.MultipartFile.fromPath('file', image.path));
+    await _chatService.sendImage(image);
 
-      var response = await request.send();
-
-      if (response.statusCode == 200) {
-        // SUCCESS!
-        var responseData = await response.stream.toBytes();
-        var jsonMap = jsonDecode(String.fromCharCodes(responseData));
-        String imageUrl = jsonMap['secure_url'];
-
-        // 3. SILENT SWAP: Update the exact same document
-        await docRef.update({
-          'imageUrl': imageUrl,
-          'isUploading': false, // Turn off the spinner
-          // We can leave localPath there, it won't hurt anything
-        });
-
-        // Update the recent message preview for the chat list
-        
-      } else {
-        // HTTP FAILED (Bad status code)
-        print('--- HTTP UPLOAD FAILED ---');
-        await docRef.update({
-          'isUploading': false, // Stop spinner
-          'hasError': true, // Trigger the red retry icon
-        });
-      }
-    } catch (e) {
-      // APP CRASHED OR NO INTERNET
-      print("--- NETWORK ERROR DURING UPLOAD ---");
-      await docRef.update({'isUploading': false, 'hasError': true});
-    }
+    setState(() {
+      _isUploading = false;
+    });
   }
 
-  Future<void> retryImageUpload(String messageId, String localPath) async {
-    DocumentReference docRef = FirebaseFirestore.instance
-        .collection('chats')
-        .doc(widget.chatId)
-        .collection('messages')
-        .doc(messageId);
-
-    // Reset the UI back to loading state instantly
-    await docRef.update({'isUploading': true, 'hasError': false});
-
-    // Run the exact same HTTP upload logic as above...
-    try {
-      String cloudName = 'dpalozx6i';
-      Uri uri = Uri.parse(
-        'https://api.cloudinary.com/v1_1/$cloudName/image/upload',
-      );
-
-      var request = http.MultipartRequest('POST', uri);
-      request.fields['upload_preset'] = 'alter_chats';
-      request.files.add(await http.MultipartFile.fromPath('file', localPath));
-
-      var response = await request.send();
-
-      if (response.statusCode == 200) {
-        var responseData = await response.stream.toBytes();
-        var jsonMap = jsonDecode(String.fromCharCodes(responseData));
-
-        await docRef.update({
-          'imageUrl': jsonMap['secure_url'],
-          'isUploading': false,
-        });
-      } else {
-        await docRef.update({'isUploading': false, 'hasError': true});
-      }
-    } catch (e) {
-      await docRef.update({'isUploading': false, 'hasError': true});
-    }
-  }
-
-  // Injects Cloudinary parameters to grab a tiny, low-bandwidth thumbnail
-  String getThumbnailUrl(String originalUrl) {
-    if (!originalUrl.contains('/upload/')) return originalUrl;
-    // w_250: width 250px | c_fill: crop to fit | q_auto: automatic quality compression
-    return originalUrl.replaceFirst('/upload/', '/upload/w_250,c_fill,q_auto/');
+  void _retryImageUpload(String messageId, String localPath) {
+    _chatService.retryImageUpload(messageId, localPath);
   }
 
   @override
@@ -330,7 +216,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                                               ),
                                                               onPressed: () {
                                                                 // snapshot.data!.docs[index].id gives us the exact Firestore document ID
-                                                                retryImageUpload(
+                                                                _retryImageUpload(
                                                                   snapshot
                                                                       .data!
                                                                       .docs[index]
@@ -420,7 +306,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       Icons.photo_library,
                       color: Color(0xff2196f3),
                     ),
-                    onPressed: _isUploading ? null : sendImage,
+                    onPressed: _isUploading ? null : _sendImage,
                   ),
                   Expanded(
                     child: TextField(
@@ -447,7 +333,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       icon: const Icon(Icons.send, color: Colors.white),
                       onPressed: () {
                         if (_messageController.text.isNotEmpty) {
-                          sendMessage();
+                          _sendMessage();
                           _messageController.clear();
                         }
                       },
