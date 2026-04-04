@@ -14,7 +14,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final String currentUserId = FirebaseAuth.instance.currentUser!.uid;
   late Stream<QuerySnapshot> _stream;
-  final Map<String, String> names = {};
+  final Map<String, Map<String, dynamic>> cachedUsers = {};
   String query = '';
   final TextEditingController searchController = TextEditingController();
 
@@ -28,26 +28,28 @@ class _ChatScreenState extends State<ChatScreen> {
         .snapshots();
   }
 
-  Future<String> getFriendName(String uid) async {
-    // Check memory first (0 reads)
-    if (names.containsKey(uid)) {
-      return names[uid]!;
+  Future<Map<String, dynamic>> getFriendData(String uid) async {
+    // 1. Check memory first (0 reads)
+    if (cachedUsers.containsKey(uid)) {
+      return cachedUsers[uid]!;
     }
 
-    // Not in memory? Ask Firebase (1 read)
+    // 2. Not in memory? Ask Firebase (1 read)
     var snapshot = await FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
         .get();
-    if (snapshot.exists) {
-      var data = snapshot.data() as Map<String, dynamic>;
-      String name = data['name'] ?? 'Unknown User';
 
-      // Save it to memory for next time
-      names[uid] = name;
-      return name;
+    if (snapshot.exists && snapshot.data() != null) {
+      var data = snapshot.data() as Map<String, dynamic>;
+
+      // 3. Save the entire map to memory for next time
+      cachedUsers[uid] = data;
+      return data;
     }
-    return 'Unknown User';
+
+    // 4. Return a safe fallback map if the user doesn't exist
+    return {'name': 'Unknown User', 'profilePic': ''};
   }
 
   String formatTimeOrDate(Timestamp? timestamp) {
@@ -95,7 +97,8 @@ class _ChatScreenState extends State<ChatScreen> {
             child: TextField(
               autofocus: false,
               onTapOutside: (event) {
-                FocusManager.instance.primaryFocus?.unfocus(); // Disappears cursor when tapping elsewhere
+                FocusManager.instance.primaryFocus
+                    ?.unfocus(); // Disappears cursor when tapping elsewhere
               },
               controller: searchController,
               onChanged: (value) {
@@ -138,7 +141,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   String friendId = participants.firstWhere(
                     (id) => id != currentUserId,
                   );
-                  String friendName = names[friendId]?.toLowerCase() ?? "";
+                  String friendName =
+                      cachedUsers[friendId]?['name'].toString().toLowerCase() ??
+                      "";
                   return query.isEmpty || friendName.contains(query);
                 }).toList();
 
@@ -164,23 +169,24 @@ class _ChatScreenState extends State<ChatScreen> {
                       (id) => id != currentUserId,
                     );
 
-                    // TODO: Ideally, you would fetch the friend's Name/Image using this friendId.
-                    // For now, we will display the ID or a placeholder.
 
-                    return FutureBuilder<String>(
-                      future: getFriendName(friendId),
-                      initialData: names[friendId],
+                    return FutureBuilder<Map<String, dynamic>>(
+                      future: getFriendData(friendId),
+                      initialData: cachedUsers[friendId],
                       builder: (context, asyncSnapshot) {
-                        // Fixed: Height set to 72 to match ListTile; better state checking
+                        // Show empty space while waiting for the initial load
                         if (asyncSnapshot.connectionState ==
                                 ConnectionState.waiting &&
                             !asyncSnapshot.hasData) {
                           return const SizedBox(height: 72);
                         }
 
-                        String friendName =
-                            asyncSnapshot.data ?? 'Unknown User';
+                        // Safely extract the data map (fallback to an empty map if null)
+                        var userData = asyncSnapshot.data ?? {};
 
+                        // Extract the exact fields you need!
+                        String friendName = userData['name'] ?? 'Unknown User';
+                        String photoUrl = userData['profilePic'] ?? '';
                         return ListTile(
                           onTap: () => Navigator.push(
                             context,
@@ -189,18 +195,21 @@ class _ChatScreenState extends State<ChatScreen> {
                                 chatId: chatDoc.id,
                                 friendId: friendId,
                                 friendName: friendName,
+                                photoUrl: photoUrl,
                               ),
                             ),
                           ),
                           leading: CircleAvatar(
-                            backgroundColor: Colors.blueAccent.shade100,
-                            child: Text(
-                              friendName[0].toUpperCase(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                            
+                            // If the URL exists, load it as the background
+                            backgroundImage:
+                                (photoUrl.isNotEmpty)
+                                ? NetworkImage(photoUrl)
+                                : null,
+                            // If the URL is empty, draw a default icon inside
+                            child: (photoUrl.isEmpty)
+                                ? Text(friendName[0])
+                                : null,
                           ),
                           title: Text(
                             friendName,

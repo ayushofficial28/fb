@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
@@ -174,5 +175,44 @@ class ChatService {
     if (!originalUrl.contains('/upload/')) return originalUrl;
     // w_250: width 250px | c_fill: crop to fit | q_auto: automatic quality compression
     return originalUrl.replaceFirst('/upload/', '/upload/w_250,c_fill,q_auto/');
+  }
+
+  // Hides the message only for the person who taps it
+  Future<void> deleteForMe(BuildContext context, String messageId,int totalParticipants) async {
+    // 1. Close the UI instantly for the user
+    Navigator.pop(context); 
+
+    DocumentReference msgRef = FirebaseFirestore.instance
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId);
+
+    DocumentSnapshot snapshot = await msgRef.get();
+    
+    if (!snapshot.exists) return; // Safety check
+    
+    var data = snapshot.data() as Map<String, dynamic>;
+    List<dynamic> deletedFor = data['deletedFor'] ?? [];
+
+    if (deletedFor.length >= totalParticipants - 1 && !deletedFor.contains(currentUserId)) {
+      await msgRef.delete();
+    } else {
+      // There are still other people who need to see it. Just hide it for me.
+      await msgRef.update({
+        'deletedFor': FieldValue.arrayUnion([currentUserId])
+      });
+    }
+  }
+
+  // Completely removes the document for everyone (Unsend)
+  Future<void> deleteForEveryone(String messageId, BuildContext context) async {
+    Navigator.pop(context);
+    await FirebaseFirestore.instance
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId)
+        .delete();
   }
 }

@@ -61,10 +61,10 @@ class _NewChatScreenState extends State<NewChatScreen> {
         child: FutureBuilder(
           future: future,
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting)
-              return Center(child: CircularProgressIndicator());
-            if (snapshot.hasError)
-              return Center(child: Text('Error: ${snapshot.error}'));
+            if (snapshot.connectionState == ConnectionState.waiting){
+              return Center(child: CircularProgressIndicator());}
+            if (snapshot.hasError){
+              return Center(child: Text('Error: ${snapshot.error}'));}
             
             var allUsers = snapshot.data!.docs;
 
@@ -99,6 +99,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
                           chatId: chatId,
                           friendId: friendId,
                           friendName: user['name'],
+                          photoUrl: user['photoUrl'] ?? '',
                         ),
                       ),
                     );
