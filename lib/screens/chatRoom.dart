@@ -100,7 +100,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
     // 2. BACKGROUND UPLOAD: Now we talk to Cloudinary
     try {
-      String cloudName = 'dpalozx6i';
+      String cloudName = '';
       Uri uri = Uri.parse(
         'https://api.cloudinary.com/v1_1/$cloudName/image/upload',
       );
@@ -153,7 +153,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     // Run the exact same HTTP upload logic as above...
     try {
-      String cloudName = 'dpalozx6i';
+      String cloudName = '';
       Uri uri = Uri.parse(
         'https://api.cloudinary.com/v1_1/$cloudName/image/upload',
       );

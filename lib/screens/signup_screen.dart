@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:fb/auth.dart';
 import 'package:flutter/material.dart';
@@ -24,14 +26,14 @@ class _SignupScreenState extends State<SignupScreen> {
   String? _generatedOtp; // Variable to hold the generated OTP
 
   // --- EMAILJS CREDENTIALS ---
-  final String serviceId = 'YOUR_SERVICE_ID';
-  final String templateId = 'YOUR_TEMPLATE_ID';
-  final String publicKey = 'YOUR_PUBLIC_KEY'; // Also known as User ID
+  final String serviceId = 'service_4tb0fgc';
+  final String templateId = 'template_375arpe';
+  final String publicKey = 'lTnxrUB6v5ElW5iz9'; // Also known as User ID
 
   // 1. Function to send the email via EmailJS
   Future<bool> sendOtpEmail(String email, String name, String otp) async {
     final url = Uri.parse('https://api.emailjs.com/api/v1.0/email/send');
-    
+    //print('object');
     try {
       final response = await http.post(
         url,
@@ -58,7 +60,7 @@ class _SignupScreenState extends State<SignupScreen> {
   void initiateSignUp() async {
     if (_formKey.currentState!.validate()) {
       setState(() { _isloading = true; });
-
+      
       // Generate a 6-digit OTP
       _generatedOtp = (Random().nextInt(900000) + 100000).toString();
 
@@ -74,6 +76,7 @@ class _SignupScreenState extends State<SignupScreen> {
       if (emailSent) {
         if (mounted) showOtpDialog();
       } else {
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Failed to send OTP email. Try again.")),
@@ -134,22 +137,32 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   // 4. The final step: Creating the account in Firebase
+  // 4. The final step: Creating the account in Firebase Auth AND Firestore
   void finalizeFirebaseSignUp() async {
     setState(() { _isloading = true; });
+
     try {
+      // 1. Create the Authentication account
       await Auth().signUpWithEmailPassword(
-          emailController.text, passwordController.text, nameController.text);
+          emailController.text.trim(), 
+          passwordController.text, // Don't trim passwords, spaces are valid characters!
+          nameController.text.trim()
+      );
       
       if (mounted) {
-        Navigator.pop(context); // Close the signup screen entirely
-      }
+            Navigator.pop(context); 
+          }
+      
     } catch (e) {
+      // 6. Catch ANY error (Auth failure, or our custom Rollback exception)
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+          // Using replaceAll cleans up the default "Exception: " text from the popup
+          SnackBar(content: Text(e.toString().replaceAll("Exception: ", ""))),
         );
       }
     } finally {
+      // 7. Turn off the loading spinner no matter what happens
       if (mounted) {
         setState(() { _isloading = false; });
       }

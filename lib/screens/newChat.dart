@@ -16,6 +16,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
   bool _isSearching = false;
   String query = '';
   final TextEditingController searchController = TextEditingController();
+  @override
   void initState() {
     super.initState();
     future = instance
@@ -82,13 +83,23 @@ class _NewChatScreenState extends State<NewChatScreen> {
               itemBuilder: (context, index) {
                 var user = users[index].data() as Map<String, dynamic>;
                 return ListTile(
-                  leading: CircleAvatar(child: Text(user['name'][0])),
+                  leading: CircleAvatar(
+                            
+                            // If the URL exists, load it as the background
+                            backgroundImage:
+                                (user['profilePic'].toString().isNotEmpty)
+                                ? NetworkImage(user['profilePic'].toString())
+                                : null,
+                            // If the URL is empty, draw a default icon inside
+                            child: (user['profilePic'].toString().isEmpty)
+                                ? Text(user['name'].toString()[0])
+                                : null,
+                          ),
                   title: Text(user['name']),
                   subtitle: Text(user['email']),
                   onTap: () {
                     String uid = FirebaseAuth.instance.currentUser!.uid;
                     String friendId = user['uid'];
-
                     List<String> participants = [uid, friendId];
                     participants.sort();
                     String chatId = participants.join('_');
@@ -99,7 +110,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
                           chatId: chatId,
                           friendId: friendId,
                           friendName: user['name'],
-                          photoUrl: user['photoUrl'] ?? '',
+                          photoUrl: user['profilePic'] ?? '',
                         ),
                       ),
                     );

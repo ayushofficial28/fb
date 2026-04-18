@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fb/auth.dart';
 import 'package:fb/screens/chatScreen.dart';
+import 'package:fb/screens/confessions_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -17,6 +19,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _page = 0;
   late PageController pageController;
   String? myPhotoUrl = FirebaseAuth.instance.currentUser?.photoURL;
+  String currentUserName =
+      FirebaseAuth.instance.currentUser?.displayName ?? "No display name set";
   @override
   void initState() {
     super.initState();
@@ -119,52 +123,224 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _removeProfilePhoto() async {
-  // 1. Turn on the loading spinner so the user knows something is happening
-  setState(() => _isUploading = true);
+    // 1. Turn on the loading spinner so the user knows something is happening
+    setState(() => _isUploading = true);
 
-  try {
-    User? user = FirebaseAuth.instance.currentUser;
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
 
-    if (user != null) {
-      // 2. Delete the photo URL from Firebase Authentication
-      await user.updatePhotoURL("");
+      if (user != null) {
+        // 2. Delete the photo URL from Firebase Authentication
+        await user.updatePhotoURL("");
 
-      // 3. Delete the photo URL from your Firestore database
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .update({'profilePic': ""});
+        // 3. Delete the photo URL from your Firestore database
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .update({'profilePic': ""});
 
-      // 4. Force the local Firebase user to refresh
-      await user.reload();
+        // 4. Force the local Firebase user to refresh
+        await user.reload();
 
-      // 5. Update the UI instantly (The "Optimistic UI" approach)
+        // 5. Update the UI instantly (The "Optimistic UI" approach)
+        if (mounted) {
+          setState(() {
+            myPhotoUrl = ""; // Clears the network image
+            _imageFile = null; // Clears any local gallery image
+          });
+
+          // 6. Show a quick confirmation popup at the bottom of the screen
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Profile photo removed")),
+          );
+        }
+      }
+    } catch (e) {
+      print("Error removing photo: $e");
       if (mounted) {
-        setState(() {
-          myPhotoUrl = "";   // Clears the network image
-          _imageFile = null; // Clears any local gallery image
-        });
-
-        // 6. Show a quick confirmation popup at the bottom of the screen
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Profile photo removed")),
+          const SnackBar(
+            content: Text("Failed to remove photo. Please try again."),
+          ),
         );
       }
-    }
-  } catch (e) {
-    print("Error removing photo: $e");
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Failed to remove photo. Please try again.")),
-      );
-    }
-  } finally {
-    // 7. Turn off the loading spinner whether it succeeded or failed
-    if (mounted) {
-      setState(() => _isUploading = false);
+    } finally {
+      // 7. Turn off the loading spinner whether it succeeded or failed
+      if (mounted) {
+        setState(() => _isUploading = false);
+      }
     }
   }
-}
+
+  void _showEditNameDialog() {
+    // Initialize the controller with the current name
+    bool isChanging = false;
+    TextEditingController nameEditController = TextEditingController(
+      text: currentUserName,
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Edit Name"),
+        content: TextField(
+          controller: nameEditController,
+          decoration: const InputDecoration(
+            hintText: "Enter new name",
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: !isChanging
+                ? () async {
+                    String newName = nameEditController.text.trim();
+                    if (newName.isNotEmpty && newName != currentUserName) {
+                      try {
+                        setState(() {
+                          isChanging = true;
+                        });
+                        // Call the backend logic we just wrote
+                        await Auth().updateDisplayName(newName);
+
+                        setState(() {
+                          currentUserName = newName; // Update UI locally
+                        });
+
+                        if (context.mounted) {
+                          Navigator.pop(context); // Close dialog
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("Name updated successfully!"),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("Error: ${e.toString()}")),
+                          );
+                        }
+                      }
+                    } else {
+                      Navigator.pop(context); // No change made, just close
+                    }
+                  }
+                : null,
+            child: Text("Save"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSettingsMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      // Modern rounded corners
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          // Ensures it doesn't overlap with system nav bars
+          child: Wrap(
+            // Wrap makes the height fit the content (2 buttons)
+            children: [
+              // The "Grab Handle" at the top
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 8),
+                  height: 4,
+                  width: 35,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+
+              // 1. Change Password Button
+              ListTile(
+                leading: const Icon(Icons.lock_outline),
+                title: const Text("Change Password"),
+                onTap: () {
+                  Navigator.pop(context); // Close the sheet first
+                  _sendPasswordReset(); // Your email logic
+                },
+              ),
+
+              // 2. Logout Button
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text(
+                  "Logout",
+                  style: TextStyle(color: Colors.red),
+                ),
+                onTap: () {
+                  Navigator.pop(context); // Close the sheet first
+                  _showLogoutDialog(); // Your confirmation dialog
+                },
+              ),
+
+              const SizedBox(height: 20), // Bottom padding
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _sendPasswordReset() async {
+    try {
+      // Replace with your actual user email variable
+      print("Attempting to send password reset to: ${FirebaseAuth.instance.currentUser!.email!}");
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: FirebaseAuth.instance.currentUser!.email!);
+      if(mounted){
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Reset link sent! Check your email.")),
+        );
+      }
+    } catch (e) {
+      debugPrint("Password reset error: $e");
+    }
+  }
+
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Logout"),
+        content: const Text("Are you sure you want to log out of Alter?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if (context.mounted) {
+                Navigator.pushNamedAndRemoveUntil(
+                  context,
+                  '/login',
+                  (route) => false,
+                );
+              }
+            },
+            child: const Text("Logout", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +421,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           // Added some padding so it doesn't hug the absolute bottom of the screen
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Row(
-                            
                             children: [
                               // 1. EDIT BUTTON (Takes up left half)
                               Expanded(
@@ -291,6 +466,22 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                         ),
+                        const Divider(),
+
+                        ListTile(
+                          leading: const Icon(Icons.person_outline),
+                          title: const Text("Display Name"),
+                          subtitle: Text(
+                            currentUserName,
+                          ), // Whatever variable holds their name
+                          trailing: IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue),
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _showEditNameDialog();
+                            },
+                          ),
+                        ),
                       ],
                     ),
                   );
@@ -303,10 +494,8 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text('Alter'),
         actions: [
           IconButton(
-            icon: Icon(Icons.power_settings_new),
-            onPressed: () {
-              FirebaseAuth.instance.signOut();
-            },
+            icon: const Icon(Icons.settings),
+            onPressed: () => _showSettingsMenu(context),
           ),
         ],
       ),
@@ -320,7 +509,7 @@ class _HomeScreenState extends State<HomeScreen> {
           },
           children: [
             Center(child: ChatScreen()),
-            Center(child: Text('Confessions Screen')),
+            Center(child: ConfessionsPage()),
           ],
         ),
       ),

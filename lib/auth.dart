@@ -13,26 +13,57 @@ class Auth{
       throw Exception('Failed to sign in: ${e.message}');
     }
   }
-  Future<UserCredential> signUpWithEmailPassword(String email, String password, String name) async {
+  Future<void> signUpWithEmailPassword(String email, String password, String name) async {
     try {
 
       
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
+      User? currentUser = FirebaseAuth.instance.currentUser;
+      
+      if (currentUser != null) {
+        try {
+          await currentUser.updateDisplayName(name);
+          // 3. Try to create their profile document in Firestore
+          await _firestore.collection('users').doc(currentUser.uid).set({
+            'uid': currentUser.uid,
+            'email': email,
+            'name': name,
+            'profilePic': '', // Default empty profile picture
+            'createdAt': FieldValue.serverTimestamp(),
+          });
 
-      await _firestore.collection('users').doc(userCredential.user!.uid).set({
-        'uid': userCredential.user!.uid,
-        'email': email,
-        'name': name,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+        } catch (firestoreError) {
+          // 5. THE ROLLBACK: Firestore failed (e.g., network drop). Delete the Auth account!
+          await currentUser.delete();
+          
+          // Throw a custom error so the catch block below shows a helpful message
+          throw Exception("Database connection failed. Account creation cancelled. Please try again.");
+        }
+      }
 
-      return userCredential;
     } on FirebaseAuthException catch (e) {
       throw Exception(e.code);
     }
   }
 
+  Future<void> updateDisplayName(String newName) async {
+  User? user = _auth.currentUser;
+  if (user != null) {
+    // 1. Update Firebase Auth record
+    await user.updateDisplayName(newName);
+    
+    // 2. Update Firestore document
+    await _firestore.collection('users').doc(user.uid).update({
+      'name': newName,
+    });
+    
+    // Optional: Refresh the user to ensure the app sees the change immediately
+    await user.reload();
+  } else {
+    throw Exception("No user logged in.");
+  }
+}
 }
