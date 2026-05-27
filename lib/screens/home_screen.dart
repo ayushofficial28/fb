@@ -301,9 +301,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void _sendPasswordReset() async {
     try {
       // Replace with your actual user email variable
-      print("Attempting to send password reset to: ${FirebaseAuth.instance.currentUser!.email!}");
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: FirebaseAuth.instance.currentUser!.email!);
-      if(mounted){
+      print(
+        "Attempting to send password reset to: ${FirebaseAuth.instance.currentUser!.email!}",
+      );
+      await FirebaseAuth.instance.sendPasswordResetEmail(
+        email: FirebaseAuth.instance.currentUser!.email!,
+      );
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Reset link sent! Check your email.")),
         );
@@ -326,14 +330,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           TextButton(
             onPressed: () async {
+              // 1. Pop the dialog off the screen IMMEDIATELY
+              Navigator.pop(context);
+
+              // 2. NOW trigger the Firebase sign out
               await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  '/login',
-                  (route) => false,
-                );
-              }
+
             },
             child: const Text("Logout", style: TextStyle(color: Colors.red)),
           ),
@@ -490,7 +492,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
         ),
-        backgroundColor: Color(0xff2196f3),
+        backgroundColor: _page == 0 ? Color(0xff2196f3) : Colors.deepPurple,
         title: Text('Alter'),
         actions: [
           IconButton(
@@ -516,7 +518,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _page,
-        backgroundColor: const Color(0xff2196f3),
+        backgroundColor: _page == 0
+            ? const Color(0xff2196f3)
+            : Colors.deepPurple,
         selectedItemColor: Colors.white,
         unselectedItemColor: Colors.black38,
         onTap: (int index) {

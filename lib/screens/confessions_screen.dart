@@ -38,7 +38,8 @@ class _ConfessionsPageState extends State<ConfessionsPage> {
                     .where('members', arrayContains: uid)
                     .snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                  if (!snapshot.hasData)
+                    return const Center(child: CircularProgressIndicator());
                   var channels = snapshot.data!.docs;
 
                   if (channels.isEmpty) {
@@ -53,12 +54,60 @@ class _ConfessionsPageState extends State<ConfessionsPage> {
                         leading: CircleAvatar(child: Text(channel['name'][0])),
                         title: Text(channel['name']),
                         subtitle: Text("Code: ${channel['code']}"),
-                        onTap: () => Navigator.push(context, MaterialPageRoute(
-                          builder: (context) => ChannelFeedPage(
-                            channelId: channel.id, 
-                            channelName: channel['name']
-                          )
-                        )),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ChannelFeedPage(
+                              channelId: channel.id,
+                              channelName: channel['name'],
+                            ),
+                          ),
+                        ),
+                        onLongPress: () => showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Leave Channel'),
+                            content: const Text(
+                              'Are you sure you want to leave this channel?',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () async {
+                                  try {
+                                    await channel.reference.update({
+                                      'members': FieldValue.arrayRemove([uid]),
+                                    });
+                                    if (context.mounted) {
+                                      Navigator.pop(context);
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            "Left channel successfully",
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(content: Text("Error: $e")),
+                                      );
+                                    }
+                                  }
+                                },
+                                child: const Text('Leave'),
+                              ),
+                            ],
+                          ),
+                        ),
                       );
                     },
                   );
@@ -83,7 +132,16 @@ class _ConfessionsPageState extends State<ConfessionsPage> {
           const Center(
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 10),
-              child: SizedBox(width: 40, height: 4, child: DecoratedBox(decoration: BoxDecoration(color: Colors.grey, borderRadius: BorderRadius.all(Radius.circular(10))))),
+              child: SizedBox(
+                width: 40,
+                height: 4,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.grey,
+                    borderRadius: BorderRadius.all(Radius.circular(10)),
+                  ),
+                ),
+              ),
             ),
           ),
           ListTile(
@@ -115,19 +173,38 @@ class _ConfessionsPageState extends State<ConfessionsPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Join Channel"),
-        content: TextField(controller: codeController, decoration: const InputDecoration(hintText: "Enter Channel Code")),
+        content: TextField(
+          controller: codeController,
+          decoration: const InputDecoration(hintText: "Enter Channel Code"),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
           ElevatedButton(
             onPressed: () async {
-              var query = await FirebaseFirestore.instance.collection('channels').where('code', isEqualTo: codeController.text.trim()).get();
+              var query = await FirebaseFirestore.instance
+                  .collection('channels')
+                  .where('code', isEqualTo: codeController.text.trim())
+                  .get();
               if (query.docs.isNotEmpty) {
-                await query.docs.first.reference.update({'members': FieldValue.arrayUnion([uid])});
+                await query.docs.first.reference.update({
+                  'members': FieldValue.arrayUnion([uid]),
+                });
+              } else {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Channel not found")),
+                  );
+                }
+              }
+              if (context.mounted) {
                 Navigator.pop(context);
               }
             },
             child: const Text("Join"),
-          )
+          ),
         ],
       ),
     );
@@ -139,30 +216,67 @@ class _ConfessionsPageState extends State<ConfessionsPage> {
     TextEditingController codeController = TextEditingController();
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text("Create Channel"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: nameController, decoration: const InputDecoration(hintText: "Channel Name")),
-            TextField(controller: codeController, decoration: const InputDecoration(hintText: "Unique Code")),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(hintText: "Channel Name"),
+            ),
+            TextField(
+              controller: codeController,
+              decoration: const InputDecoration(hintText: "Unique Code"),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
           ElevatedButton(
             onPressed: () async {
+              String inputCode = codeController.text.trim();
+              String channelName = nameController.text.trim();
+
+              if (inputCode.isEmpty || channelName.isEmpty) return;
+
+              // 1. FAST CHECK: See if anyone else is using this code
+              var existing = await FirebaseFirestore.instance
+                  .collection('channels')
+                  .where('code', isEqualTo: inputCode)
+                  .get();
+
+              if (existing.docs.isNotEmpty) {
+                if(ctx.mounted){
+                Navigator.pop(ctx);
+                }
+                // Code is taken! Show a quick alert or snackbar
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("That code is already taken! Try another."),
+                    ),
+                  );
+                }
+                return; // Stop here
+              }
+
+              // 2. CREATE: If we got here, the code is unique
               await FirebaseFirestore.instance.collection('channels').add({
-                'name': nameController.text.trim(),
-                'code': codeController.text.trim(),
+                'name': channelName,
+                'code': inputCode,
                 'members': [uid],
                 'createdBy': uid,
                 'timestamp': FieldValue.serverTimestamp(),
               });
-              Navigator.pop(context);
+
+              if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text("Create"),
-          )
+          ),
         ],
       ),
     );
@@ -174,7 +288,10 @@ class _ConfessionsPageState extends State<ConfessionsPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.forum_outlined, size: 80, color: Colors.grey[300]),
-          const Text("No channels yet. Tap + to start!", style: TextStyle(color: Colors.grey)),
+          const Text(
+            "No channels yet. Tap + to start!",
+            style: TextStyle(color: Colors.grey),
+          ),
         ],
       ),
     );

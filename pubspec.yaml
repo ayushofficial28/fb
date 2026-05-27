@@ -44,6 +44,7 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  flutter_dotenv: ^6.0.1
 
 dev_dependencies:
   flutter_test:
@@ -55,7 +56,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
-
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.0
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -68,9 +70,9 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/logo.jpeg
+    - .env
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -97,3 +99,23 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  remove_alpha_ios: true # <-- This fixes the Apple App Store warning!
+  image_path: "assets/logo.jpeg" 
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "assets/logo.jpeg"
+    background_color: "#2196f3" # Gives the web tab a nice blue background
+    theme_color: "#2196f3"
+
+flutter_native_splash:
+  color: "#2196f3" # Your app's brand blue
+  image: "assets/logo.jpeg" # Your logo path
+
+  # Android 12+ requires a specific format, so we duplicate it here
+  android_12:
+    color: "#2196f3"
+    image: "assets/logo.jpeg"
